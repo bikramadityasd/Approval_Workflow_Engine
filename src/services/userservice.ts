@@ -1,8 +1,7 @@
-import { PrismaClient } from "@prisma/client/extension";  
+import type { Designation } from "@prisma/client";
+import { prisma } from "../prisma.js";
 
-const prisma = new PrismaClient();
-
-const createUser = async function(name: string, email: string, designation: string) {
+const createUser = async function(name: string, email: string, designation: Designation) {
   return await prisma.user.create({
     data: {
       name,
@@ -11,8 +10,15 @@ const createUser = async function(name: string, email: string, designation: stri
     },
   });
 };
-const getAllUsers = async () => {
+const getAllUsers = async function(){
   return await prisma.user.findMany();
 };
+const deleteUser = async function(email: string){
+  return await prisma.user.delete({
+    where: {
+      email,
+    },
+  });
+};
 
-export { createUser,getAllUsers };
+export { createUser,getAllUsers,deleteUser };

@@ -4,6 +4,303 @@ A self-contained roadmap for building this project. Read top to bottom. Each pha
 
 ---
 
+## STATUS — where you are right now
+
+**Done:**
+- Slice 1 ✅ — Express app boots, `/health` works.
+- Slice 2 ✅ — `POST /users`, `GET /users`, `DELETE /users/:email` wired up.
+- Slice 3 🟡 — create request + transaction logic written, several bugs below.
+
+**Not started:**
+- Slice 4 — JWT auth (you asked about it; doing header stub for now).
+- Slice 5 — `GET /requests/:id`.
+- Slice 6 — Approve / Reject.
+
+---
+
+## ACTION LIST — do these in order
+
+Each step is small. Finish one, test, commit, move to the next.
+
+### A. Fix the bug that will crash Slice 3 at runtime
+
+**File: `src/services/requestService.ts`**
+
+The `findUnique` at the end of the transaction has a broken `include`. `orderBy` is *inside* `include` but it belongs *next to* it. Current:
+
+```ts
+include: {
+  approvals: {
+    include: {
+      orderBy: { stepOrder: "asc" },   // WRONG location
+      approver: true,
+    },
+  },
+},
+```
+
+Correct shape:
+
+```ts
+include: {
+  approvals: {
+    orderBy: { stepOrder: "asc" },
+    include: { approver: true },
+  },
+},
+```
+
+Prisma will throw a validation error at runtime until this is fixed.
+
+### B. Rename `description` → `title` (spec requirement)
+
+The assignment specifies `title`. Rename in every place:
+
+1. `prisma/schema.prisma` — `description String` → `title String`
+2. Run migration: `npx prisma migrate dev --name rename_description_to_title`
+3. `src/schema/requestSchema.ts` — `description: z.string()` → `title: z.string().min(1)`
+4. `src/services/requestService.ts` — function arg + `data: { description, ... }` → `title`
+5. `src/controllers/requestController.ts` — `input.description` → `input.title`
+
+### C. Clean up `requestController.ts`
+
+1. Delete the old commented-out block (lines 7–22). Dead code confuses reviewers.
+2. Differentiate error types:
+   ```ts
+   import { ZodError } from "zod";
+   // ...
+   } catch (error) {
+     if (error instanceof ZodError) {
+       return res.status(400).json({ errors: error.errors });
+     }
+     if (error instanceof Error && error.message === "Approval chain cannot be built") {
+       return res.status(400).json({ error: error.message });
+     }
+     return res.status(500).json({ error: "Internal server error" });
+   }
+   ```
+3. Use `res.status(201).json(request)` on success.
+4. Guard against `NaN` user id:
+   ```ts
+   const userId = Number(userIdString);
+   if (Number.isNaN(userId)) {
+     return res.status(400).json({ error: "user-id header must be a number" });
+   }
+   ```
+
+### D. Fix `deleteUserInput` — uses body but route is `/users/:email`
+
+Two things conflict: the route has a URL param `:email`, but the controller reads `req.body` via Zod. Right now `req.params.email` is ignored.
+
+Pick one:
+- **Use the URL param (REST-y):** read `req.params.email`, drop the Zod parse.
+- **Keep body:** change route back to `router.post("/users/delete", ...)` — but that's non-REST.
+
+Recommendation: URL param. Cleaner.
+
+```ts
+async function deleteUserInput(req: Request, res: Response) {
+  const email = req.params.email;
+  if (!email) return res.status(400).json({ error: "email param required" });
+  await deleteUser(email);
+  res.status(204).send();
+}
+```
+
+Even better: delete by `id`, not email. Change route to `/users/:id` and service to use `prisma.user.delete({ where: { id: Number(req.params.id) } })`.
+
+### E. Drop `updateRequestStatusSchema` from `requestSchema.ts`
+
+You don't need it. Slice 6's approve/reject gets status from the URL verb, not the body. If you want to keep a schema for the optional comment:
+
+```ts
+const approveRejectSchema = z.object({
+  comment: z.string().optional(),
+});
+export { createRequestSchema, approveRejectSchema };
+```
+
+### F. Test Slice 3 end to end
+
+```bash
+# 1. Create the three users you'll need
+curl -X POST localhost:3001/users -H "Content-Type: application/json" \
+  -d '{"name":"Alice Manager","email":"alice@x.com","designation":"MANAGER"}'
+curl -X POST localhost:3001/users -H "Content-Type: application/json" \
+  -d '{"name":"Bob HR","email":"bob@x.com","designation":"HR"}'
+curl -X POST localhost:3001/users -H "Content-Type: application/json" \
+  -d '{"name":"Carol Emp","email":"carol@x.com","designation":"EMPLOYEE"}'
+
+# 2. List to get the numeric ids
+curl localhost:3001/users
+
+# 3. As Carol (say her id is 3), create a request
+curl -X POST localhost:3001/requests \
+  -H "Content-Type: application/json" \
+  -H "user-id: 3" \
+  -d '{"title":"New laptop","amount":1500}'
+```
+
+Expected response: 201, request object with `approvals: [stepOrder 1, stepOrder 2]`, both PENDING.
+
+**Commit.** `feat: create request with auto-generated approval chain`.
+
+### G. Convention tidy-ups (optional but recommended)
+
+**Move route prefixes into `server.ts`:**
+
+```ts
+// server.ts
+app.use("/users", userRoutes);
+app.use("/requests", requestRoute);
+
+// userRoutes.ts — drop "/users" from every router path
+router.post("/", createUserInput);
+router.get("/", listUsersHandler);
+router.delete("/:id", deleteUserInput);
+
+// requestRoute.ts
+router.post("/", createRequestInput);
+```
+
+**Move the inline `getAllUsers` handler out of `userRoutes.ts`** into a `listUsers` controller function. Keeps routes = wiring, controllers = logic.
+
+**Rename `requestRoute.ts` → `requestRoutes.ts`** so it matches `userRoutes.ts`.
+
+### H. Slice 5 — `GET /requests/:id`
+
+Small slice. Three pieces:
+
+1. **Service — `getRequestById(id)`:**
+   ```ts
+   return prisma.request.findUnique({
+     where: { id },
+     include: {
+       user: true,
+       approvals: {
+         orderBy: { stepOrder: "asc" },
+         include: { approver: true },
+       },
+     },
+   });
+   ```
+2. **Controller — `getRequestHandler`:** read `req.params.id`, call service, 404 if null, else `res.json(result)`.
+3. **Route:** `router.get("/:id", getRequestHandler)` inside `requestRoute.ts`.
+
+Test:
+```bash
+curl localhost:3001/requests/<request-id>
+```
+
+Commit.
+
+### I. Slice 6 — Approve / Reject (core of the project)
+
+Build these **one at a time**. Approve first.
+
+**1. Schema — `approveRejectSchema` in `requestSchema.ts`** (already covered in step E).
+
+**2. Service — `approveRequest(requestId, actingUserId, comment?)`:**
+
+Whole function must be inside `prisma.$transaction(async (tx) => { ... })`. Inside:
+
+1. Load the current step:
+   ```ts
+   const currentStep = await tx.approval.findFirst({
+     where: { requestId, status: "PENDING" },
+     orderBy: { stepOrder: "asc" },
+   });
+   ```
+2. Validate:
+   - Null → throw `new Error("Request is already closed")` (400).
+   - `currentStep.approverId !== actingUserId` → throw `new Error("Not your turn")` (403).
+3. Update the step to APPROVED:
+   ```ts
+   await tx.approval.update({
+     where: { id: currentStep.id },
+     data: { status: "APPROVED", actedAt: new Date(), comment },
+   });
+   ```
+   (You'll need to add `actedAt DateTime?` and `comment String?` to `Approval` in the schema and migrate.)
+4. Last step?
+   ```ts
+   const remaining = await tx.approval.count({
+     where: { requestId, status: "PENDING" },
+   });
+   if (remaining === 0) {
+     await tx.request.update({
+       where: { id: requestId },
+       data: { status: "APPROVED" },
+     });
+   }
+   ```
+5. Return the updated request with approvals (same `findUnique` shape as Slice 5).
+
+**3. Service — `rejectRequest(requestId, actingUserId, comment?)`:** same start, then mark step REJECTED and immediately set request to REJECTED. Don't touch later steps.
+
+**4. Controllers — `approveHandler`, `rejectHandler`:**
+- `const requestId = req.params.id;`
+- `const userId = Number(req.headers["user-id"])` (same guard as before).
+- Parse optional `{ comment }` from body.
+- Call service. Map errors:
+  - "Not your turn" → 403
+  - "Request is already closed" → 400
+  - Other → 500.
+
+**5. Routes:**
+```ts
+router.post("/:id/approve", approveHandler);
+router.post("/:id/reject",  rejectHandler);
+```
+
+**6. Test (full happy path + rejection path):**
+
+```bash
+# Manager approves step 1
+curl -X POST localhost:3001/requests/$REQ/approve \
+  -H "Content-Type: application/json" \
+  -H "user-id: <manager-id>" \
+  -d '{"comment":"looks good"}'
+# Expect request.status still PENDING, approvals[0].status = APPROVED
+
+# HR approves step 2 (last)
+curl -X POST localhost:3001/requests/$REQ/approve \
+  -H "user-id: <hr-id>"
+# Expect request.status = APPROVED
+
+# HR tries approving out of turn on a fresh request (should 403)
+curl -X POST localhost:3001/requests/$REQ2/approve \
+  -H "user-id: <hr-id>"
+
+# Manager rejects step 1 on another fresh request
+curl -X POST localhost:3001/requests/$REQ3/reject \
+  -H "user-id: <manager-id>" \
+  -d '{"comment":"over budget"}'
+# Expect request.status = REJECTED, step 2 still PENDING
+```
+
+**Commit.** `feat: approve and reject endpoints with ordered step enforcement`.
+
+### J. Add audit fields (small schema change)
+
+Before Slice 6, add these to `Approval` in `schema.prisma` (if not already):
+
+```prisma
+actedAt  DateTime?
+comment  String?
+```
+
+Then migrate: `npx prisma migrate dev --name add_audit_fields`.
+
+### K. Finalize
+
+1. Write the README (section 10 below has the checklist).
+2. Add a `.env.example` with placeholder values.
+3. Confirm `.gitignore` covers `.env`, `node_modules`, `src/generated/` (if any).
+4. Commit + push. Submit the GitHub URL.
+
+---
+
 ## 0. Setup on a fresh machine
 
 Use this when you clone the repo on a new laptop / VM.

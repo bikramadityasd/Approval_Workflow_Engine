@@ -4,8 +4,8 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
+  // output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -13,7 +13,7 @@ datasource db {
 }
 
 model User {
-  id    String @id @default(uuid())
+  id    Int @id @default(autoincrement())
   name  String
   email String @unique
   designation Designation 
@@ -26,7 +26,7 @@ model Request {
   description String
   amount      Float
   status      Status  @default(PENDING)
-  userId      String
+  userId      Int
   user        User     @relation(fields: [userId], references: [id])
   approvals   Approval[]
   createdAt   DateTime @default(now())
@@ -35,7 +35,7 @@ model Request {
 model Approval {
   id        String   @id @default(uuid())
   requestId String
-  approverId String
+  approverId Int
   status    Status   @default(PENDING)
   request   Request  @relation(fields: [requestId], references: [id])
   approver   User     @relation(fields: [approverId], references: [id])

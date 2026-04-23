@@ -6,7 +6,7 @@ CREATE TYPE "Designation" AS ENUM ('MANAGER', 'HR', 'EMPLOYEE');
 
 -- CreateTable
 CREATE TABLE "User" (
-    "id" TEXT NOT NULL,
+    "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "designation" "Designation" NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE "Request" (
     "description" TEXT NOT NULL,
     "amount" DOUBLE PRECISION NOT NULL,
     "status" "Status" NOT NULL DEFAULT 'PENDING',
-    "userId" TEXT NOT NULL,
+    "userId" INTEGER NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Request_pkey" PRIMARY KEY ("id")
@@ -30,7 +30,7 @@ CREATE TABLE "Request" (
 CREATE TABLE "Approval" (
     "id" TEXT NOT NULL,
     "requestId" TEXT NOT NULL,
-    "approverId" TEXT NOT NULL,
+    "approverId" INTEGER NOT NULL,
     "status" "Status" NOT NULL DEFAULT 'PENDING',
     "stepOrder" INTEGER NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
