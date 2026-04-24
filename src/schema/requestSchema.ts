@@ -6,9 +6,23 @@ const createRequestSchema = z.object({
     // userId: z.number(),
 });
 
-const updateRequestStatusSchema = z.object({
+
+const getRequestByUserIdSchema = z.object({
+    userId: z.number(),
+});
+
+//for approve 
+const approveStatusSchema = z.object({
     requestId: z.string(),
+    approverId: z.number(),
     status: z.enum(["PENDING", "APPROVED", "REJECTED"]),
 });
 
-export { createRequestSchema, updateRequestStatusSchema };
+//for reject
+const rejectStatusSchema = z.object({
+    requestId: z.string(),
+    approverId: z.number(),
+    status: z.enum(["PENDING", "APPROVED", "REJECTED"]),
+});
+
+export { createRequestSchema, approveStatusSchema, rejectStatusSchema, getRequestByUserIdSchema };

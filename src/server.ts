@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import userRoutes from "./routes/userRoutes.js";
-import requestRoute from "./routes/requestRoute.js";
+import requestRoute from "./routes/requestRoutes.js";
 
 
 const app = express();
@@ -12,8 +12,8 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-app.use("/", userRoutes);
-app.use("/", requestRoute)
+app.use("/users", userRoutes);
+app.use("/requests", requestRoute);
 
 
 const PORT = process.env.PORT || 3001;

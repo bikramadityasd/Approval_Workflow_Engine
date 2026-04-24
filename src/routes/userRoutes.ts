@@ -1,16 +1,16 @@
 import { Router } from 'express';
-import { createUserInput, deleteUserInput } from '../controllers/userController.js';
-import { getAllUsers } from '../services/userService.js';
+import { createUserInput, deleteUserInput, getUsers } from '../controllers/userController.js';
 
 const router = Router();
 //Create User
-router.post('/users', createUserInput);
+router.post('/', createUserInput);
 //Delete User
-router.delete('/users/:email', deleteUserInput);
+router.delete('/:email', deleteUserInput);
 //Get all Users
-router.get('/users', async (req, res) => {
-  const users = await getAllUsers();
-  res.json(users);
-});
+router.get('/', getUsers);
+//   async (req, res) => {
+//   const users = await getAllUsers();
+//   res.json(users);
+// });
 
 export default router;

@@ -22,3 +22,4 @@ const deleteUser = async function(email: string){
 };
 
 export { createUser,getAllUsers,deleteUser };
+
